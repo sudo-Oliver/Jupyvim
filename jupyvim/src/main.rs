@@ -3,6 +3,8 @@ mod server;
 
 use clap::Parser;
 use std::path::PathBuf;
+use std::sync::Arc; // <--- Wichtig für den Arc-Typ im Broadcast-Kanal
+use bytes::Bytes;    // <--- Wichtig für Bytes
 use kernel::{KernelManager, KernelCommand};
 use server::WebServer;
 use tokio::sync::mpsc;
@@ -38,16 +40,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shell_socket = kernel_manager.connect_shell().await?;
     let iopub_socket = kernel_manager.connect_iopub().await?;
 
-    // 3. Command-Channel erstellen
+    // 3. Command-Channel (MPSC) erstellen
     let (tx, rx) = mpsc::channel::<KernelCommand>(100);
     let secret_key = kernel_manager.connection_info.key.clone();
 
-    // 4. Shell-Actor & IOPub-Actor im Hintergrund starten
-    tokio::spawn(KernelManager::run_actor(shell_socket, rx, secret_key));
-    tokio::spawn(KernelManager::run_iopub_actor(iopub_socket));
+    // --- NEU: 4. Broadcast-Kanal für den IOPub-Live-Stream einrichten ---
+    // Kapazität von 2048 Nachrichten als Puffer gegen Slow Receiver
+    let (iopub_tx, _) = tokio::sync::broadcast::channel::<Arc<Vec<Bytes>>>(2048);
 
-    // 5. Webserver initialisieren und starten
-    let server = WebServer::new(args.port, tx);
+    // 5. Shell-Actor & IOPub-Actor im Hintergrund starten
+    tokio::spawn(KernelManager::run_actor(shell_socket, rx, secret_key));
+    
+    // IOPub-Worker bekommt jetzt den iopub_tx Sender übergeben!
+    tokio::spawn(KernelManager::run_iopub_actor(iopub_socket, iopub_tx.clone()));
+
+    // 6. Webserver initialisieren und iopub_tx mit übergeben
+    let server = WebServer::new(args.port, tx, iopub_tx);
 
     tokio::select! {
         res = server.run() => {
