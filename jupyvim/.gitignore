@@ -1,0 +1,6 @@
+/target
+kernel_connection.json
+jupyvim_debug.log
+.DS_Store
+.jupyvim/
+test/.venv/

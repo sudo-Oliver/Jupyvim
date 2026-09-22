@@ -1,0 +1,532 @@
+:root {
+    --bg: #1e1e1e;
+    --sidebar-bg: #252526;
+    --editor-bg: #1e1e1e;
+    --border: #3c3c3c;
+    --border-active: #007acc;
+    --text-primary: #cccccc;
+    --text-muted: #858585;
+    --accent: #007acc;
+    --accent-hover: #0098ff;
+    --btn-bg: #333333;
+    --btn-hover: #444444;
+    --gutter-bg: #1e1e1e;
+    --output-bg: #1e1e1e;
+    --error-bg: rgba(241, 76, 76, 0.1);
+    --error-border: #f14c4c;
+    --error-text: #f48771;
+    --success: #89d185;
+    --warning: #cca700;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* Global Navigation & Header */
+.header {
+    background-color: var(--sidebar-bg);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.logo-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--accent-hover);
+    letter-spacing: 0.5px;
+}
+
+.logo-icon {
+    font-size: 16px;
+}
+
+.filename-badge {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: var(--font-mono);
+    padding: 3px 8px;
+    background: #2d2d2d;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+
+.header-center {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.toolbar-btn {
+    background: var(--btn-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font-ui);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.toolbar-btn:hover {
+    background: var(--btn-hover);
+    border-color: #555;
+    color: #ffffff;
+}
+
+.toolbar-btn.primary {
+    background: #0e639c;
+    border-color: #1177bb;
+    color: #ffffff;
+}
+
+.toolbar-btn.primary:hover {
+    background: var(--accent-hover);
+}
+
+.readonly-hint {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.kernel-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    background: #2d2d2d;
+    border: 1px solid var(--border);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--warning);
+}
+
+.kernel-status.connected .status-dot {
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
+}
+
+.kernel-status.busy .status-dot {
+    background: var(--warning);
+    box-shadow: 0 0 6px var(--warning);
+    animation: pulse 1s infinite alternate;
+}
+
+.kernel-status.disconnected .status-dot {
+    background: var(--error-border);
+}
+
+@keyframes pulse {
+    0% { opacity: 0.4; }
+    100% { opacity: 1; }
+}
+
+/* Notebook Container */
+.notebook-container {
+    max-width: 960px;
+    width: 100%;
+    margin: 20px auto 100px auto;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Cell Component */
+.cell {
+    background: var(--editor-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cell:hover,
+.cell.focused {
+    border-color: var(--border-active);
+    box-shadow: 0 0 0 1px var(--border-active);
+}
+
+.cell-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 10px;
+    background: #252526;
+    border-bottom: 1px solid #2d2d2d;
+    border-radius: 5px 5px 0 0;
+    opacity: 0.85;
+}
+
+.cell:hover .cell-header {
+    opacity: 1;
+}
+
+.cell-type-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.cell-jump-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.cell:hover .cell-jump-btn {
+    opacity: 1;
+}
+
+.cell-jump-btn:hover {
+    background: #333333;
+    color: var(--accent-hover);
+}
+
+/* Neovim -> browser cursor-follow: a brief, dezent highlight when the
+   cursor crosses into this cell in Neovim -- not a loud flash. */
+.cell.cursor-follow {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cell-body {
+    display: flex;
+    position: relative;
+}
+
+.cell-gutter {
+    width: 44px;
+    background: var(--gutter-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 10px;
+    border-right: 1px solid #282828;
+    user-select: none;
+}
+
+.run-cell-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--accent);
+    cursor: pointer;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    transition: all 0.15s ease;
+}
+
+.run-cell-btn:hover {
+    background: #2d2d2d;
+    border-color: var(--border);
+    color: var(--accent-hover);
+}
+
+.cell.running .run-cell-btn {
+    animation: spin 1s linear infinite;
+    color: var(--warning);
+}
+
+@keyframes spin {
+    100% { transform: rotate(360deg); }
+}
+
+.exec-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* Execution status: live "N.Ns" timer while running, persistent ✓/✗ +
+   final duration once done (mirrors VS Code's notebook status). Plain text
+   + two color classes -- no animation library, no extra DOM churn. */
+.exec-status {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    margin-top: 3px;
+    white-space: nowrap;
+}
+
+.exec-status.running {
+    color: var(--warning);
+}
+
+.exec-status.success {
+    color: var(--success);
+}
+
+.exec-status.error {
+    color: var(--error-text);
+}
+
+.cell-editor-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.cell-code {
+    width: 100%;
+    background: transparent;
+    color: #d4d4d4;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 10px 14px;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+}
+
+/* Markdown Cell Render */
+.markdown-rendered {
+    padding: 12px 16px;
+    color: #e0e0e0;
+    line-height: 1.6;
+    cursor: pointer;
+}
+
+.markdown-rendered h1,
+.markdown-rendered h2,
+.markdown-rendered h3 {
+    color: #4ec9b0;
+    margin-top: 0.6em;
+    margin-bottom: 0.4em;
+    border-bottom: 1px solid #333;
+    padding-bottom: 0.2em;
+}
+
+.markdown-rendered p {
+    margin-bottom: 0.6em;
+}
+
+.markdown-rendered code {
+    background: #2a2d2e;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    color: #ce9178;
+}
+
+.markdown-rendered pre {
+    background: #16161e;
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+/* Outputs */
+.cell-output {
+    background: var(--output-bg);
+    border-top: 1px solid #2d2d2d;
+    padding: 10px 14px 10px 58px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    overflow-x: auto;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.cell-output:empty {
+    display: none;
+}
+
+.output-stream {
+    color: #9cdcfe;
+    white-space: pre-wrap;
+    line-height: 1.4;
+}
+
+.output-error {
+    background: var(--error-bg);
+    border-left: 3px solid var(--error-border);
+    padding: 8px 12px;
+    color: var(--error-text);
+    white-space: pre-wrap;
+    border-radius: 3px;
+    line-height: 1.4;
+}
+
+.output-image-wrap {
+    position: relative;
+    display: inline-block;
+    margin-top: 6px;
+}
+
+.output-image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    background: #ffffff;
+    padding: 4px;
+    cursor: zoom-in;
+}
+
+.output-image-btn {
+    position: absolute;
+    top: 8px;
+    background: rgba(30, 30, 30, 0.75);
+    border: 1px solid var(--border);
+    color: #e0e0e0;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.output-image-wrap:hover .output-image-btn {
+    opacity: 1;
+}
+
+.output-image-btn:hover {
+    background: rgba(0, 0, 0, 0.9);
+    border-color: var(--accent);
+}
+
+.output-image-copy {
+    right: 40px;
+}
+
+.output-image-save {
+    right: 8px;
+}
+
+/* Click-to-zoom lightbox: a single reused overlay, toggled via a class so
+   there's no per-image DOM overhead. */
+.lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 2000;
+}
+
+.lightbox-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.lightbox-overlay img {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
+    cursor: zoom-out;
+}
+
+/* DataFrame / rich HTML output (text/html mimetype, preferred over
+   text/plain whenever both are present -- see app.js). Horizontal scroll
+   instead of squeezing wide tables into the column, real borders/padding
+   instead of the cramped browser-default table look. */
+.output-html {
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 8px 0;
+}
+
+.output-html table {
+    border-collapse: collapse;
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--output-bg);
+    border: 1px solid var(--border);
+}
+
+.output-html th {
+    background: var(--sidebar-bg);
+    color: #ffffff;
+    font-weight: 600;
+    text-align: right;
+    padding: 6px 12px;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+}
+
+.output-html td {
+    padding: 5px 12px;
+    border-bottom: 1px solid #2d2d2d;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.output-html tbody tr:hover {
+    background: #2a2d2e;
+}
+
