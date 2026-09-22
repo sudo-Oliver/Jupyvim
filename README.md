@@ -64,13 +64,26 @@ Neovim is great for writing Python files. It is terrible at editing `.ipynb` fil
 
 ## Architecture
 
-```
-Neovim (.py mirror, real Python) --BufWritePost--> Rust daemon --ZMQ--> ipykernel
-        ^                                              |
-        | <leader>jx (execute_cell_wait)                v
-        |                                          .ipynb on disk
-        |                                              |
-        +-------------------- Browser (read-only, live via WebSocket) <-+
+```mermaid
+flowchart LR
+    Mirror["Neovim<br/>.py mirror (real Python)"]
+    Ipynb[(".ipynb<br/>ground truth on disk")]
+    Browser["Browser<br/>read-only live preview"]
+
+    subgraph Daemon["Rust daemon (one per open notebook)"]
+        Server["Axum HTTP + WebSocket server"]
+        Kernel["ZMQ shell/iopub actor<br/>HMAC-signed"]
+    end
+
+    IPyKernel(["ipykernel<br/>subprocess"])
+
+    Mirror -- "save / live-typing sync" --> Server
+    Server -- "click-to-jump<br/>(nvim --server --remote-expr)" --> Mirror
+    Server -- "writes on save" --> Ipynb
+    Server -- "execute_request" --> Kernel
+    Kernel <-- "ZMQ shell + iopub" --> IPyKernel
+    Kernel -- "live output" --> Server
+    Server <-- "WebSocket: outputs, structure,<br/>execute_cell, cursor-follow" --> Browser
 ```
 
 - **Rust daemon** (`src/`): one process per open notebook. Spawns a real `ipykernel` subprocess and talks to it over ZeroMQ (shell + iopub sockets, HMAC-signed, exactly like Jupyter itself). Exposes an Axum HTTP/WebSocket server.
