@@ -9,8 +9,7 @@ mod server;
 use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
-use bytes::Bytes;
-use kernel::{KernelManager, KernelCommand};
+use kernel::{IopubMessage, KernelManager, KernelCommand};
 use notebook::Notebook;
 use server::WebServer;
 use tokio::sync::mpsc;
@@ -129,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secret_key = kernel_manager.connection_info.key.clone();
 
     // 4. Setup broadcast channels for IOPub live stream and UI structure updates
-    let (iopub_tx, _) = tokio::sync::broadcast::channel::<Arc<Vec<Bytes>>>(2048);
+    let (iopub_tx, _) = tokio::sync::broadcast::channel::<Arc<IopubMessage>>(2048);
     let (ui_tx, _) = tokio::sync::broadcast::channel::<String>(64);
 
     // 5. Spawn Shell actor and IOPub actor in background

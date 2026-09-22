@@ -126,6 +126,39 @@ pub enum KernelCommand {
     ExecuteCode { code: String, msg_id: String },
 }
 
+/// One IOPub message, parsed exactly once at the point it's received off the
+/// ZMQ socket and then shared (via Arc) with every broadcast subscriber --
+/// the output-capture task, every connected browser WebSocket, and any
+/// in-flight `execute_cell_wait` -- instead of each of them independently
+/// re-running serde_json::from_slice on the same bytes. A busy print loop
+/// can produce many messages per second, so this turns an O(consumers) cost
+/// per message into O(1).
+pub struct IopubMessage {
+    pub msg_type: String,
+    pub parent_msg_id: Option<String>,
+    pub content: serde_json::Value,
+}
+
+impl IopubMessage {
+    fn parse(frames: &[Bytes]) -> Option<Self> {
+        if frames.len() < 7 {
+            return None;
+        }
+        let header: serde_json::Value = serde_json::from_slice(&frames[3]).ok()?;
+        let parent: Option<serde_json::Value> = serde_json::from_slice(&frames[4]).ok();
+        let content: serde_json::Value = serde_json::from_slice(&frames[6]).ok()?;
+
+        let msg_type = header.get("msg_type")?.as_str()?.to_string();
+        let parent_msg_id = parent
+            .as_ref()
+            .and_then(|p| p.get("msg_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        Some(IopubMessage { msg_type, parent_msg_id, content })
+    }
+}
+
 impl KernelManager {
     /// Starts ZMQ event loop as a background Tokio task (actor model) with HMAC signing
     pub async fn run_actor(
@@ -212,10 +245,15 @@ impl KernelManager {
         Ok(socket)
     }
 
-    /// High-performance event loop for IOPub stream with zero-copy broadcast
+    /// High-performance event loop for IOPub stream. Parses each message
+    /// exactly once here (see IopubMessage::parse) and broadcasts the parsed
+    /// result behind an Arc, so every subscriber shares it rather than
+    /// re-parsing the same JSON. Malformed frames (any message that isn't a
+    /// well-formed 7-part Jupyter wire message) are dropped here instead of
+    /// forwarding raw bytes for every consumer to independently reject.
     pub async fn run_iopub_actor(
         mut socket: zeromq::SubSocket,
-        iopub_tx: broadcast::Sender<Arc<Vec<Bytes>>>,
+        iopub_tx: broadcast::Sender<Arc<IopubMessage>>,
     ) {
         // Already subscribed to all topics in connect_iopub(); this is the
         // consumer loop for that same socket, not a fresh connection.
@@ -226,8 +264,9 @@ impl KernelManager {
             match socket.recv().await {
                 Ok(zmq_msg) => {
                     let frames: Vec<Bytes> = zmq_msg.into_vec();
-                    let shared_msg = Arc::new(frames);
-                    let _ = iopub_tx.send(shared_msg);
+                    if let Some(parsed) = IopubMessage::parse(&frames) {
+                        let _ = iopub_tx.send(Arc::new(parsed));
+                    }
                 }
                 Err(e) => {
                     eprintln!("==> [Error] Failed to receive message from IOPub socket: {}", e);

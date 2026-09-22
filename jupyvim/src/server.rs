@@ -17,9 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{broadcast, mpsc, RwLock};
-use bytes::Bytes;
 
-use crate::kernel::KernelCommand;
+use crate::kernel::{IopubMessage, KernelCommand};
 use crate::notebook::{Cell, Notebook};
 use crate::render;
 
@@ -73,7 +72,7 @@ pub struct AppState {
     pub mirror_path: PathBuf,
     pub notebook: Notebook,
     pub kernel_tx: mpsc::Sender<KernelCommand>,
-    pub iopub_tx: broadcast::Sender<Arc<Vec<Bytes>>>,
+    pub iopub_tx: broadcast::Sender<Arc<IopubMessage>>,
     /// Broadcasts pre-serialized JSON strings straight to connected browser
     /// WebSocket clients (structure changes, cursor-follow pings, ...) --
     /// kept as already-serialized text so the WS forwarding loop can just
@@ -94,7 +93,7 @@ pub struct WebServer {
     mirror_path: PathBuf,
     notebook: Notebook,
     kernel_tx: mpsc::Sender<KernelCommand>,
-    iopub_tx: broadcast::Sender<Arc<Vec<Bytes>>>,
+    iopub_tx: broadcast::Sender<Arc<IopubMessage>>,
     ui_tx: broadcast::Sender<String>,
     nvim_server: Option<String>,
 }
@@ -106,7 +105,7 @@ impl WebServer {
         mirror_path: PathBuf,
         notebook: Notebook,
         kernel_tx: mpsc::Sender<KernelCommand>,
-        iopub_tx: broadcast::Sender<Arc<Vec<Bytes>>>,
+        iopub_tx: broadcast::Sender<Arc<IopubMessage>>,
         ui_tx: broadcast::Sender<String>,
         nvim_server: Option<String>,
     ) -> Self {
@@ -399,21 +398,19 @@ async fn handle_execute_cell_wait(
     let wait_result = tokio::time::timeout(Duration::from_secs(120), async {
         loop {
             match iopub_rx.recv().await {
-                Ok(frames) => {
-                    if let Some((msg_type, parent_id, content)) = parse_iopub_frame(&frames) {
-                        if parent_id.as_deref() != Some(msg_id.as_str()) {
-                            continue;
-                        }
-                        if msg_type == "error" {
-                            error_info = Some(json!({
-                                "ename": content.get("ename").cloned().unwrap_or(Value::Null),
-                                "evalue": content.get("evalue").cloned().unwrap_or(Value::Null),
-                            }));
-                        } else if msg_type == "status"
-                            && content.get("execution_state").and_then(|v| v.as_str()) == Some("idle")
-                        {
-                            return;
-                        }
+                Ok(msg) => {
+                    if msg.parent_msg_id.as_deref() != Some(msg_id.as_str()) {
+                        continue;
+                    }
+                    if msg.msg_type == "error" {
+                        error_info = Some(json!({
+                            "ename": msg.content.get("ename").cloned().unwrap_or(Value::Null),
+                            "evalue": msg.content.get("evalue").cloned().unwrap_or(Value::Null),
+                        }));
+                    } else if msg.msg_type == "status"
+                        && msg.content.get("execution_state").and_then(|v| v.as_str()) == Some("idle")
+                    {
+                        return;
                     }
                 }
                 Err(RecvError::Lagged(_)) => continue,
@@ -446,25 +443,25 @@ async fn capture_outputs_task(state: Arc<RwLock<AppState>>) {
 
     loop {
         match rx.recv().await {
-            Ok(frames) => {
-                let Some((msg_type, Some(parent_id), content)) = parse_iopub_frame(&frames) else {
+            Ok(msg) => {
+                let Some(parent_id) = msg.parent_msg_id.as_deref() else {
                     continue;
                 };
 
                 let mut guard = state.write().await;
-                let Some(&index) = guard.exec_map.get(&parent_id) else {
+                let Some(&index) = guard.exec_map.get(parent_id) else {
                     continue;
                 };
 
-                let is_idle = msg_type == "status"
-                    && content.get("execution_state").and_then(|v| v.as_str()) == Some("idle");
+                let is_idle = msg.msg_type == "status"
+                    && msg.content.get("execution_state").and_then(|v| v.as_str()) == Some("idle");
 
                 if let Some(cell) = guard.notebook.cells.get_mut(index) {
-                    apply_iopub_to_cell(cell, &msg_type, &content);
+                    apply_iopub_to_cell(cell, &msg.msg_type, &msg.content);
                 }
 
                 if is_idle {
-                    guard.exec_map.remove(&parent_id);
+                    guard.exec_map.remove(parent_id);
                 }
             }
             Err(RecvError::Lagged(_)) => continue,
@@ -550,24 +547,6 @@ fn jump_neovim_to_line(nvim_server: Option<&str>, line: u64) {
     }
 }
 
-fn parse_iopub_frame(frames: &[Bytes]) -> Option<(String, Option<String>, serde_json::Value)> {
-    if frames.len() < 7 {
-        return None;
-    }
-    let header_val: serde_json::Value = serde_json::from_slice(&frames[3]).ok()?;
-    let parent_val: Option<serde_json::Value> = serde_json::from_slice(&frames[4]).ok();
-    let content_val: serde_json::Value = serde_json::from_slice(&frames[6]).ok()?;
-
-    let msg_type = header_val.get("msg_type")?.as_str()?.to_string();
-    let parent_msg_id = parent_val
-        .as_ref()
-        .and_then(|p| p.get("msg_id"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    Some((msg_type, parent_msg_id, content_val))
-}
-
 // WebSocket endpoint with optional query parameters
 async fn handle_websocket(
     ws: WebSocketUpgrade,
@@ -621,25 +600,23 @@ async fn handle_socket_connection(
             tokio::select! {
                 iopub_result = iopub_rx.recv() => {
                     match iopub_result {
-                        Ok(shared_frames) => {
-                            if let Some((msg_type, parent_msg_id, content_val)) = parse_iopub_frame(&shared_frames) {
-                                if let Some(ref target_id) = target_parent_id {
-                                    if parent_msg_id.as_deref() != Some(target_id.as_str()) {
-                                        continue;
-                                    }
+                        Ok(msg) => {
+                            if let Some(ref target_id) = target_parent_id {
+                                if msg.parent_msg_id.as_deref() != Some(target_id.as_str()) {
+                                    continue;
                                 }
+                            }
 
-                                let ws_message = serde_json::json!({
-                                    "type": "iopub",
-                                    "msg_type": msg_type,
-                                    "parent_msg_id": parent_msg_id,
-                                    "content": content_val
-                                });
+                            let ws_message = serde_json::json!({
+                                "type": "iopub",
+                                "msg_type": msg.msg_type,
+                                "parent_msg_id": msg.parent_msg_id,
+                                "content": msg.content
+                            });
 
-                                if let Ok(json_str) = serde_json::to_string(&ws_message) {
-                                    if sender.send(Message::Text(json_str)).await.is_err() {
-                                        break;
-                                    }
+                            if let Ok(json_str) = serde_json::to_string(&ws_message) {
+                                if sender.send(Message::Text(json_str)).await.is_err() {
+                                    break;
                                 }
                             }
                         }
